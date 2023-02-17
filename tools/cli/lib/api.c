@@ -621,6 +621,15 @@ TDNFCliCheckUpdateCommand(
     char** ppszPackageArgs = NULL;
     int nPackageCount = 0;
 
+    #define MAX_COL_LEN 256
+    char szNameAndArch[MAX_COL_LEN] = {0};
+    char szVersionAndRelease[MAX_COL_LEN] = {0};
+
+    #define COL_COUNT 3
+    //Name.Arch | Version-Release | Repo
+    int nColPercents[COL_COUNT] = {55, 25, 15};
+    int nColWidths[COL_COUNT] = {0};
+
     if(!pContext || !pContext->hTdnf || !pCmdArgs || !pContext->pFnCheckUpdate)
     {
         dwError = ERROR_TDNF_CLI_INVALID_ARGUMENT;
@@ -639,13 +648,45 @@ TDNFCliCheckUpdateCommand(
                                        &dwCount);
     BAIL_ON_CLI_ERROR(dwError);
 
+    dwError = GetColumnWidths(COL_COUNT, nColPercents, nColWidths);
+    BAIL_ON_CLI_ERROR(dwError);
+
     for(dwIndex = 0; dwIndex < dwCount; ++dwIndex)
     {
         pPkg = &pPkgInfo[dwIndex];
-        pr_crit("%*s\r", 80, pPkg->pszRepoName);
-        pr_crit("%*s-%s\r", 50, pPkg->pszVersion, pPkg->pszRelease);
-        pr_crit("%s.%s", pPkg->pszName, pPkg->pszArch);
-        pr_crit("\n");
+
+        memset(szNameAndArch, 0, MAX_COL_LEN);
+        if(snprintf(
+            szNameAndArch,
+            MAX_COL_LEN,
+            "%s.%s",
+            pPkg->pszName,
+            pPkg->pszArch) < 0)
+        {
+            dwError = errno;
+            BAIL_ON_CLI_ERROR(dwError);
+        }
+
+        memset(szVersionAndRelease, 0, MAX_COL_LEN);
+        if(snprintf(
+            szVersionAndRelease,
+            MAX_COL_LEN,
+            "%s-%s",
+            pPkg->pszVersion,
+            pPkg->pszRelease) < 0)
+        {
+            dwError = errno;
+            BAIL_ON_CLI_ERROR(dwError);
+        }
+
+        pr_crit(
+            "%-*s%-*s%*s\n",
+            nColWidths[0],
+            szNameAndArch,
+            nColWidths[1],
+            szVersionAndRelease,
+            nColWidths[2],
+            pPkg->pszRepoName);
     }
 
 cleanup:
@@ -654,6 +695,10 @@ cleanup:
     {
         TDNFFreePackageInfoArray(pPkgInfo, dwCount);
     }
+    /* yum and dnf return 100 if there are package updates available.
+       puppet depends on this behaviour, even with tdnf. */
+    if(dwCount > 0)
+        return ERROR_TDNF_CLI_CHECK_UPDATES_AVAILABLE;
     return dwError;
 
 error:
